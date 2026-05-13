@@ -79,6 +79,9 @@ struct Args {
     #[arg(long, default_value_t = 0)]
     job_ms: u64,
 
+    #[arg(long, value_name = "NAME")]
+    run: Option<String>,
+
     #[arg(long)]
     output: Option<PathBuf>,
 
@@ -396,6 +399,7 @@ async fn main() -> Result<()> {
     if let Some(num_total_jobs) = args.num_total_jobs {
         args.tasks = num_total_jobs;
     }
+    resolve_run_paths(&mut args)?;
     validate_args(&args)?;
 
     if args.is_matrix() {
@@ -424,6 +428,25 @@ impl Args {
             || !self.matrix_modes.is_empty()
             || self.matrix_repeats > 1
     }
+}
+
+fn resolve_run_paths(args: &mut Args) -> Result<()> {
+    let Some(name) = args.run.as_ref() else {
+        return Ok(());
+    };
+    if name.is_empty() || name.contains('/') || name.contains('\\') {
+        anyhow::bail!("--run name must be non-empty and contain no path separators");
+    }
+    let dir = PathBuf::from("runs").join(name);
+    fs::create_dir_all(&dir)
+        .with_context(|| format!("create run directory {}", dir.display()))?;
+    if args.output.is_none() {
+        args.output = Some(dir.join("report.json"));
+    }
+    if args.export.is_none() && !args.no_html {
+        args.export = Some(dir.join("report.html"));
+    }
+    Ok(())
 }
 
 async fn run_single_report(args: &Args) -> Result<JsonReport> {

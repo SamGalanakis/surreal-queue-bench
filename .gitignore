@@ -4,6 +4,9 @@
 *.pdb
 
 # Benchmark outputs
+# `runs/` is the default output root for `--run NAME`. Track specific runs
+# you want to keep with `git add -f runs/<name>/`.
+/runs/
 /reports/
 *.bench.json
 *.bench.html
