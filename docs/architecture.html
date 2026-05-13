@@ -303,6 +303,40 @@
   }
   .frame.dark .mermaid > svg { filter: invert(0); }
 
+  /* paper-aesthetic overrides for mermaid clusters + edge labels */
+  .mermaid .cluster rect,
+  .mermaid g.cluster > rect {
+    fill: #ece2cc !important;
+    stroke: var(--ink) !important;
+    stroke-dasharray: 4 3 !important;
+    stroke-width: 1.5 !important;
+    rx: 2;
+    ry: 2;
+  }
+  .mermaid .cluster-label .nodeLabel,
+  .mermaid .cluster text {
+    fill: var(--ink-faint) !important;
+    font-family: var(--mono) !important;
+    font-size: 11px !important;
+    letter-spacing: 0.18em !important;
+    text-transform: uppercase !important;
+  }
+  .mermaid .edgeLabel,
+  .mermaid .edgeLabel rect,
+  .mermaid .edgeLabel .label foreignObject,
+  .mermaid .edgeLabel span.edgeLabel {
+    background: var(--paper) !important;
+    background-color: var(--paper) !important;
+    fill: var(--paper) !important;
+    color: var(--ink) !important;
+  }
+  .mermaid .edgeLabel span,
+  .mermaid .edgeLabel .nodeLabel {
+    background: var(--paper) !important;
+    color: var(--ink) !important;
+    padding: 1px 4px !important;
+  }
+
   /* "expand to zoom" button glued to top-right of each frame */
   .frame .expand-btn {
     position: absolute;
@@ -1482,8 +1516,12 @@ sequenceDiagram
       primaryTextColor: '#1a1d24',
       primaryBorderColor: '#1a1d24',
       lineColor: '#3b3f49',
-      secondaryColor: '#b3322a',
-      tertiaryColor: '#2a4a73',
+      secondaryColor: '#ddd1b6',
+      tertiaryColor: '#e8dec9',
+      clusterBkg: '#ece2cc',
+      clusterBorder: '#1a1d24',
+      titleColor: '#1a1d24',
+      edgeLabelBackground: '#f1eadb',
       fontFamily: 'JetBrains Mono, monospace',
       fontSize: '14px',
       noteBkgColor: '#e8dec9',
@@ -1494,8 +1532,8 @@ sequenceDiagram
       actorTextColor: '#1a1d24',
       signalColor: '#1a1d24',
       signalTextColor: '#1a1d24',
-      labelBoxBkgColor: '#b3322a',
-      labelBoxBorderColor: '#872019',
+      labelBoxBkgColor: '#1a1d24',
+      labelBoxBorderColor: '#1a1d24',
       labelTextColor: '#f1eadb',
       activationBkgColor: '#a67517',
       activationBorderColor: '#5b3d0e',
