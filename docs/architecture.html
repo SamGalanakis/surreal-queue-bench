@@ -1,0 +1,1660 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>surreal-queue-bench — Architecture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,700;9..144,900&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --paper:        #f1eadb;
+    --paper-shade:  #e8dec9;
+    --paper-deep:   #ddd1b6;
+    --ink:          #1a1d24;
+    --ink-soft:     #3b3f49;
+    --ink-faint:    #6b6e77;
+    --rule:         #c5b89b;
+    --red:          #b3322a;
+    --red-deep:     #872019;
+    --blue:         #2a4a73;
+    --blue-deep:    #1a3354;
+    --amber:        #a67517;
+    --amber-soft:   #d4a843;
+    --olive:        #5b6233;
+
+    --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --serif: 'Newsreader', 'Spectral', Georgia, serif;
+    --display: 'Fraunces', 'Spectral', Georgia, serif;
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+
+  body {
+    font-family: var(--serif);
+    color: var(--ink);
+    background: var(--paper);
+    background-image:
+      radial-gradient(circle at 20% 10%, rgba(0,0,0,0.025) 0, transparent 50%),
+      radial-gradient(circle at 80% 60%, rgba(0,0,0,0.02) 0, transparent 50%),
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='40' height='40'><circle cx='1' cy='1' r='0.6' fill='%23c5b89b' opacity='0.35'/></svg>");
+    line-height: 1.55;
+    font-size: 17px;
+    min-height: 100vh;
+  }
+
+  /* page frame */
+  .page {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 36px 28px 96px;
+  }
+
+  /* HEADER */
+  header.cover {
+    border-top: 6px solid var(--ink);
+    border-bottom: 1px solid var(--ink);
+    padding: 22px 0 30px;
+    position: relative;
+  }
+  header.cover::before {
+    content: "";
+    position: absolute;
+    top: -6px; left: 0; right: 0;
+    height: 6px;
+    background: var(--ink);
+  }
+  .top-strip {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    padding-bottom: 18px;
+    border-bottom: 1px dotted var(--rule);
+    margin-bottom: 22px;
+  }
+  .top-strip .lhs { color: var(--red); font-weight: 700; }
+  .top-strip .rhs span { margin-left: 18px; }
+
+  h1.title {
+    font-family: var(--display);
+    font-weight: 900;
+    font-size: clamp(48px, 8.4vw, 104px);
+    line-height: 0.92;
+    letter-spacing: -0.03em;
+    margin: 0 0 14px;
+    color: var(--ink);
+    font-variation-settings: "opsz" 144, "SOFT" 0;
+  }
+  h1.title em {
+    font-style: italic;
+    color: var(--red);
+    font-variation-settings: "opsz" 144, "SOFT" 50;
+  }
+  .subtitle {
+    font-family: var(--serif);
+    font-size: 22px;
+    font-weight: 400;
+    line-height: 1.4;
+    color: var(--ink-soft);
+    max-width: 760px;
+    margin: 0 0 28px;
+  }
+
+  /* KPI strip */
+  .kpis {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 0;
+    border: 1px solid var(--ink);
+    background: var(--paper-shade);
+  }
+  .kpi {
+    padding: 14px 16px;
+    border-right: 1px solid var(--ink);
+    font-family: var(--mono);
+  }
+  .kpi:last-child { border-right: none; }
+  .kpi .label {
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    display: block;
+    margin-bottom: 6px;
+  }
+  .kpi .value {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 26px;
+    color: var(--ink);
+    line-height: 1;
+    font-variation-settings: "opsz" 60;
+  }
+  .kpi .unit {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--ink-faint);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    margin-left: 4px;
+  }
+  @media (max-width: 900px) {
+    .kpis { grid-template-columns: repeat(3, 1fr); }
+    .kpi:nth-child(3n) { border-right: none; }
+    .kpi { border-bottom: 1px solid var(--ink); }
+    .kpi:nth-last-child(-n+3) { border-bottom: none; }
+  }
+
+  /* TABS */
+  nav.tabs {
+    position: sticky;
+    top: 0;
+    background: var(--paper);
+    z-index: 10;
+    padding: 14px 0 0;
+    margin: 32px 0 0;
+    border-bottom: 2px solid var(--ink);
+    display: flex;
+    gap: 0;
+    overflow-x: auto;
+  }
+  nav.tabs button {
+    appearance: none;
+    background: transparent;
+    border: 1px solid var(--ink);
+    border-bottom: none;
+    border-right: none;
+    padding: 12px 18px 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink-soft);
+    cursor: pointer;
+    transition: color 120ms, background 120ms;
+    white-space: nowrap;
+  }
+  nav.tabs button:last-of-type { border-right: 1px solid var(--ink); }
+  nav.tabs button:hover { color: var(--red); background: var(--paper-shade); }
+  nav.tabs button.active {
+    background: var(--ink);
+    color: var(--paper);
+    font-weight: 700;
+  }
+  nav.tabs .tab-num {
+    color: var(--red);
+    margin-right: 8px;
+    font-weight: 700;
+  }
+  nav.tabs button.active .tab-num { color: var(--amber-soft); }
+
+  /* PANELS */
+  main.panels { padding-top: 36px; }
+  .panel { display: none; }
+  .panel.active { display: block; animation: fade 240ms ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+  .panel h2 {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 38px;
+    line-height: 1.04;
+    letter-spacing: -0.015em;
+    margin: 0 0 6px;
+    color: var(--ink);
+    font-variation-settings: "opsz" 96;
+  }
+  .panel h2 .marker {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.2em;
+    color: var(--red);
+    display: block;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    font-weight: 700;
+  }
+  .panel h3 {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 22px;
+    margin: 36px 0 10px;
+    color: var(--blue-deep);
+    letter-spacing: -0.005em;
+  }
+  .panel h3::before {
+    content: "§ ";
+    color: var(--red);
+    font-family: var(--mono);
+    font-weight: 700;
+    margin-right: 4px;
+  }
+  .panel p {
+    max-width: 78ch;
+    margin: 0 0 14px;
+  }
+  .panel p code, .panel li code, td code {
+    font-family: var(--mono);
+    font-size: 0.88em;
+    background: var(--paper-shade);
+    padding: 1px 6px;
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    color: var(--red-deep);
+  }
+
+  .lede {
+    font-size: 21px;
+    line-height: 1.45;
+    color: var(--ink);
+    max-width: 70ch;
+    border-left: 4px solid var(--red);
+    padding-left: 18px;
+    margin: 0 0 32px;
+    font-style: italic;
+  }
+
+  /* schematic frame around diagrams + code */
+  .frame {
+    border: 1px solid var(--ink);
+    background: var(--paper);
+    margin: 22px 0 32px;
+    position: relative;
+  }
+  .frame .label {
+    position: absolute;
+    top: -10px;
+    left: 16px;
+    background: var(--paper);
+    padding: 0 8px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--red);
+    font-weight: 700;
+  }
+  .frame .body { padding: 28px 22px 22px; }
+  .frame.dark { background: var(--ink); border-color: var(--ink); }
+  .frame.dark .label { background: var(--ink); color: var(--amber-soft); }
+  .frame.dark pre { color: var(--paper); }
+
+  /* mermaid containers — force SVGs to fill their frame */
+  .mermaid-wrap { display: block; padding: 8px 0 0; position: relative; }
+  .mermaid {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    min-height: 220px;
+  }
+  .mermaid > svg {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    display: block;
+    cursor: zoom-in;
+  }
+  .frame.dark .mermaid > svg { filter: invert(0); }
+
+  /* "expand to zoom" button glued to top-right of each frame */
+  .frame .expand-btn {
+    position: absolute;
+    top: -10px;
+    right: 16px;
+    background: var(--paper);
+    border: 1px solid var(--ink);
+    padding: 3px 11px 2px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--ink);
+    cursor: pointer;
+    transition: background 120ms, color 120ms;
+    z-index: 2;
+  }
+  .frame .expand-btn:hover { background: var(--ink); color: var(--amber-soft); }
+  .frame.dark .expand-btn { background: var(--ink); color: var(--amber-soft); border-color: var(--amber-soft); }
+  .frame.dark .expand-btn:hover { background: var(--amber-soft); color: var(--ink); }
+
+  /* zoom modal */
+  .zoom-modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(26, 29, 36, 0.94);
+    z-index: 1000;
+    display: none;
+    flex-direction: column;
+    padding: 20px;
+  }
+  .zoom-modal.open { display: flex; }
+  .zoom-modal .titlebar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 4px 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--paper);
+  }
+  .zoom-modal .titlebar .left { color: var(--amber-soft); font-weight: 700; }
+  .zoom-modal .controls { display: flex; gap: 6px; align-items: center; }
+  .zoom-modal .controls button {
+    appearance: none;
+    background: var(--paper);
+    border: 1px solid var(--paper);
+    color: var(--ink);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    padding: 5px 14px;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    line-height: 1;
+  }
+  .zoom-modal .controls button:hover { background: var(--amber-soft); border-color: var(--amber-soft); }
+  .zoom-modal .controls .close { background: var(--red); color: var(--paper); border-color: var(--red); }
+  .zoom-modal .controls .close:hover { background: var(--red-deep); border-color: var(--red-deep); color: var(--paper); }
+  .zoom-modal .stage {
+    flex: 1;
+    background: var(--paper);
+    border: 1px solid var(--paper);
+    overflow: hidden;
+    position: relative;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+  }
+  .zoom-modal .stage.dragging { cursor: grabbing; }
+  .zoom-modal .stage .canvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+    will-change: transform;
+  }
+  .zoom-modal .stage .canvas svg { display: block; }
+  .zoom-modal .hint {
+    position: absolute;
+    bottom: 12px;
+    left: 12px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    background: var(--paper-shade);
+    padding: 4px 10px;
+    border: 1px solid var(--rule);
+    pointer-events: none;
+  }
+  .zoom-modal .readout {
+    position: absolute;
+    bottom: 12px;
+    right: 12px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    background: var(--paper-shade);
+    padding: 4px 10px;
+    border: 1px solid var(--rule);
+    pointer-events: none;
+  }
+
+  /* code blocks */
+  pre {
+    font-family: var(--mono);
+    font-size: 13px;
+    line-height: 1.6;
+    margin: 0;
+    padding: 18px 20px;
+    overflow-x: auto;
+    color: var(--ink);
+    background: transparent;
+  }
+  pre .kw { color: var(--red); font-weight: 700; }
+  pre .fn { color: var(--blue); font-weight: 600; }
+  pre .str { color: var(--olive); }
+  pre .com { color: var(--ink-faint); font-style: italic; }
+  pre .num { color: var(--amber); }
+
+  /* two-column module cards */
+  .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 22px; margin: 24px 0; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin: 24px 0; }
+  @media (max-width: 780px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+
+  .card {
+    border: 1px solid var(--ink);
+    padding: 18px 18px 16px;
+    background: var(--paper-shade);
+    position: relative;
+  }
+  .card .tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--red);
+    margin-bottom: 6px;
+    font-weight: 700;
+  }
+  .card h4 {
+    font-family: var(--display);
+    font-size: 20px;
+    margin: 0 0 8px;
+    font-weight: 700;
+    line-height: 1.15;
+    color: var(--ink);
+  }
+  .card p { font-size: 15px; line-height: 1.5; margin: 0 0 8px; color: var(--ink-soft); }
+  .card ul { font-size: 14px; padding-left: 20px; margin: 8px 0 0; color: var(--ink-soft); }
+  .card ul li { margin-bottom: 4px; }
+  .card .files {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--red-deep);
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px dotted var(--rule);
+    letter-spacing: 0.02em;
+  }
+
+  /* tables */
+  table.spec {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 18px 0 28px;
+    font-family: var(--mono);
+    font-size: 13px;
+    border: 1px solid var(--ink);
+  }
+  table.spec th, table.spec td {
+    text-align: left;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  table.spec th {
+    background: var(--ink);
+    color: var(--paper);
+    font-size: 11px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+  table.spec tr:last-child td { border-bottom: none; }
+  table.spec tr:nth-child(even) td { background: var(--paper-shade); }
+  table.spec td.k { color: var(--red); font-weight: 700; }
+
+  /* token ID diagram */
+  .id-diagram {
+    font-family: var(--mono);
+    font-size: 14px;
+    background: var(--paper-shade);
+    border: 1px solid var(--ink);
+    padding: 18px 20px;
+    margin: 12px 0 18px;
+    overflow-x: auto;
+  }
+  .id-diagram .row { display: flex; align-items: center; padding: 6px 0; flex-wrap: wrap; }
+  .id-diagram .name {
+    color: var(--red);
+    font-weight: 700;
+    min-width: 130px;
+    padding-right: 12px;
+  }
+  .id-diagram .colon { color: var(--ink-faint); margin: 0 3px; }
+  .id-diagram .seg {
+    border: 1px solid var(--ink);
+    padding: 3px 9px;
+    margin: 2px 4px 2px 0;
+    background: var(--paper);
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .id-diagram .seg.var { background: var(--blue); color: var(--paper); border-color: var(--blue); }
+  .id-diagram .seg.key { background: var(--amber-soft); border-color: var(--amber); color: var(--ink); }
+  .id-diagram .seg.id { background: var(--red); color: var(--paper); border-color: var(--red-deep); }
+
+  /* callout */
+  .callout {
+    border-left: 4px solid var(--amber);
+    background: var(--paper-shade);
+    padding: 14px 18px;
+    margin: 18px 0;
+    font-size: 16px;
+  }
+  .callout strong { color: var(--red); font-family: var(--mono); font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase; display: block; margin-bottom: 4px; }
+
+  /* === COMPACT DIAGRAM-FOCUSED COMPONENTS === */
+
+  /* Tighter panel rhythm */
+  .panel h2 { font-size: 32px; margin-bottom: 4px; }
+  .panel h3 { font-size: 19px; margin: 26px 0 8px; }
+  .panel p { font-size: 16px; }
+  .panel .lede { font-size: 19px; margin-bottom: 20px; padding-left: 16px; }
+  main.panels { padding-top: 26px; }
+
+  /* Three pillars (Overview) */
+  .three-pillars {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0;
+    border: 1px solid var(--ink);
+    margin: 24px 0 8px;
+  }
+  .pillar {
+    padding: 14px 18px 16px;
+    border-right: 1px solid var(--ink);
+    background: var(--paper-shade);
+  }
+  .pillar:last-child { border-right: none; }
+  .pillar .num {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    color: var(--red);
+    font-weight: 700;
+    display: block;
+    margin-bottom: 8px;
+  }
+  .pillar h4 {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 19px;
+    margin: 0 0 8px;
+    color: var(--ink);
+    line-height: 1.2;
+    letter-spacing: -0.005em;
+  }
+  .pillar p {
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--ink-soft);
+    margin: 0;
+  }
+  @media (max-width: 780px) {
+    .three-pillars { grid-template-columns: 1fr; }
+    .pillar { border-right: none; border-bottom: 1px solid var(--ink); }
+    .pillar:last-child { border-bottom: none; }
+  }
+
+  /* Transaction grid (Data Flow) */
+  .tx-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+  .tx {
+    border: 1px solid var(--ink);
+    background: var(--paper);
+    padding: 12px 14px 14px;
+    display: flex;
+    flex-direction: column;
+  }
+  .tx .tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    font-weight: 700;
+    color: var(--paper);
+    background: var(--red);
+    padding: 2px 8px 1px;
+    margin-bottom: 8px;
+    align-self: flex-start;
+  }
+  .tx h5 {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    margin: 0 0 10px;
+    color: var(--ink-soft);
+    letter-spacing: 0.04em;
+  }
+  .tx ol {
+    padding-left: 18px;
+    margin: 0;
+    font-family: var(--mono);
+    font-size: 11.5px;
+    line-height: 1.55;
+    color: var(--ink);
+  }
+  .tx ol li { margin-bottom: 4px; }
+  .tx ol li::marker { color: var(--red); font-weight: 700; }
+  .tx .muted {
+    color: var(--ink-faint);
+    font-size: 10px;
+    letter-spacing: 0.02em;
+    display: block;
+    margin-top: 2px;
+  }
+  @media (max-width: 900px) { .tx-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 520px) { .tx-grid { grid-template-columns: 1fr; } }
+
+  /* Mode strip (Execution) */
+  .mode-strip {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0;
+    border: 1px solid var(--ink);
+    margin: 18px 0 28px;
+    background: var(--paper-shade);
+  }
+  .mode {
+    padding: 12px 16px 14px;
+    border-right: 1px solid var(--ink);
+  }
+  .mode:last-child { border-right: none; }
+  .mode .tag {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    color: var(--red);
+    display: block;
+    margin-bottom: 6px;
+  }
+  .mode p {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.4;
+    color: var(--ink);
+  }
+  .mode .why {
+    font-size: 12px;
+    color: var(--ink-faint);
+    font-family: var(--mono);
+    letter-spacing: 0.05em;
+    margin-top: 4px;
+  }
+  @media (max-width: 700px) {
+    .mode-strip { grid-template-columns: 1fr; }
+    .mode { border-right: none; border-bottom: 1px solid var(--ink); }
+    .mode:last-child { border-bottom: none; }
+  }
+
+  /* HRW visualisation table */
+  table.hrw {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: var(--mono);
+    font-size: 13px;
+    border: 1px solid var(--ink);
+    margin: 4px 0;
+    background: var(--paper);
+  }
+  table.hrw th, table.hrw td {
+    text-align: left;
+    padding: 7px 12px;
+    border-bottom: 1px solid var(--rule);
+    border-right: 1px solid var(--rule);
+  }
+  table.hrw th:last-child, table.hrw td:last-child { border-right: none; }
+  table.hrw th {
+    background: var(--ink);
+    color: var(--paper);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+  table.hrw th.owner { color: var(--amber-soft); }
+  table.hrw td.win {
+    background: var(--red);
+    color: var(--paper);
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+  table.hrw td.o {
+    background: var(--amber-soft);
+    font-weight: 700;
+    color: var(--ink);
+    letter-spacing: 0.08em;
+    text-align: center;
+  }
+  table.hrw tr:last-child td { border-bottom: none; }
+
+  /* Captions inside frames */
+  .frame .body .cap {
+    font-family: var(--serif);
+    font-size: 15px;
+    line-height: 1.5;
+    color: var(--ink-soft);
+    margin: 0 0 14px;
+    max-width: none;
+  }
+  .frame .body .cap + .cap { margin-top: 14px; margin-bottom: 0; }
+  .frame .body .cap + table.hrw,
+  .frame .body table.hrw + .cap { margin-top: 14px; }
+
+  /* Abstraction grid */
+  .abst-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin: 22px 0 28px;
+  }
+  .abst {
+    border: 1px solid var(--ink);
+    background: var(--paper-shade);
+    padding: 14px 16px 14px;
+  }
+  .abst .num {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    font-weight: 700;
+    color: var(--red);
+    display: block;
+    margin-bottom: 6px;
+  }
+  .abst h4 {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 17px;
+    margin: 0 0 6px;
+    line-height: 1.2;
+    color: var(--ink);
+  }
+  .abst p {
+    margin: 0;
+    font-size: 13.5px;
+    line-height: 1.5;
+    color: var(--ink-soft);
+  }
+  @media (max-width: 900px) { .abst-grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 540px) { .abst-grid { grid-template-columns: 1fr; } }
+
+  /* Legend below ID diagram */
+  .legend {
+    display: flex;
+    gap: 24px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--ink-soft);
+    margin-top: 14px;
+    flex-wrap: wrap;
+    letter-spacing: 0.02em;
+  }
+  .legend i.sw {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    vertical-align: middle;
+    margin-right: 6px;
+    border: 1px solid var(--ink);
+  }
+  .legend i.sw.blue { background: var(--blue); border-color: var(--blue-deep); }
+  .legend i.sw.amber { background: var(--amber-soft); border-color: var(--amber); }
+  .legend i.sw.red { background: var(--red); border-color: var(--red-deep); }
+
+  /* footer */
+  footer.sig {
+    margin-top: 64px;
+    padding-top: 18px;
+    border-top: 2px solid var(--ink);
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  /* lifecycle stages list */
+  .stages { counter-reset: stg; list-style: none; padding: 0; margin: 18px 0; }
+  .stages li {
+    counter-increment: stg;
+    border-left: 2px solid var(--ink);
+    padding: 4px 0 18px 22px;
+    position: relative;
+    margin-left: 18px;
+  }
+  .stages li::before {
+    content: "0" counter(stg);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    color: var(--paper);
+    background: var(--ink);
+    padding: 4px 8px;
+    position: absolute;
+    left: -22px;
+    top: 0;
+    letter-spacing: 0.06em;
+  }
+  .stages li h5 {
+    margin: 0 0 4px;
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 19px;
+    color: var(--blue-deep);
+  }
+  .stages li p { margin: 0; font-size: 15px; color: var(--ink-soft); }
+  .stages li code { font-family: var(--mono); background: var(--paper-shade); padding: 1px 5px; border: 1px solid var(--rule); font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- COVER -->
+  <header class="cover">
+    <div class="top-strip">
+      <span class="lhs">FIG. ARCH / REV 2026.05.13</span>
+      <span class="rhs">
+        <span>SURREALDB v3.0.5</span>
+        <span>RUST 2024</span>
+        <span>5,221 LOC</span>
+      </span>
+    </div>
+    <h1 class="title">surreal<em>·</em>queue<em>·</em>bench</h1>
+    <p class="subtitle">
+      A Rust benchmark that uses composite SurrealDB record-IDs as queue-order tokens,
+      hash buckets as virtual ownership partitions, and stored functions wrapped in
+      transactions for at-least-once delivery.
+    </p>
+    <div class="kpis">
+      <div class="kpi"><span class="label">Language</span><span class="value">Rust</span><span class="unit">2024</span></div>
+      <div class="kpi"><span class="label">Source</span><span class="value">5,221</span><span class="unit">LOC · 2 files</span></div>
+      <div class="kpi"><span class="label">Crates</span><span class="value">10</span><span class="unit">deps</span></div>
+      <div class="kpi"><span class="label">Tables</span><span class="value">4</span><span class="unit">SDB</span></div>
+      <div class="kpi"><span class="label">Stored Fns</span><span class="value">4</span><span class="unit">SurrealQL</span></div>
+      <div class="kpi"><span class="label">Modes</span><span class="value">3</span><span class="unit">workloads</span></div>
+    </div>
+  </header>
+
+  <!-- TABS -->
+  <nav class="tabs" id="tabnav">
+    <button class="tab active" data-tab="overview"><span class="tab-num">01</span>Overview</button>
+    <button class="tab" data-tab="dataflow"><span class="tab-num">02</span>Data Flow</button>
+    <button class="tab" data-tab="execution"><span class="tab-num">03</span>Execution</button>
+    <button class="tab" data-tab="abstractions"><span class="tab-num">04</span>Abstractions</button>
+    <button class="tab" data-tab="modules"><span class="tab-num">05</span>Modules</button>
+  </nav>
+
+  <main class="panels">
+
+    <!-- ============ OVERVIEW ============ -->
+    <section class="panel active" data-tab="overview">
+      <h2><span class="marker">§ 01 — Overview</span>The shape of the approach</h2>
+      <p class="lede">
+        Composite record-IDs encode queue order so reads are primary-key range scans.
+        Buckets shard work; client-side HRW over the live worker set shards ownership;
+        lease tokens give at-least-once delivery.
+      </p>
+
+      <div class="frame">
+        <span class="label">FIG. 1 — System topology</span>
+        <div class="body mermaid-wrap">
+<pre class="mermaid">
+flowchart TD
+  classDef prod fill:#e8dec9,stroke:#1a1d24,stroke-width:2px,color:#1a1d24;
+  classDef tok fill:#b3322a,stroke:#872019,color:#f1eadb;
+  classDef pay fill:#2a4a73,stroke:#1a3354,color:#f1eadb;
+  classDef ctl fill:#a67517,stroke:#5b3d0e,color:#f1eadb;
+
+  P["Producers · N tasks"]:::prod
+  C["Consumers · M workers"]:::prod
+
+  subgraph SDB["SurrealDB"]
+    direction LR
+    PAY["job_payload<br/>durable body + state"]:::pay
+    RDY["job_ready<br/>RANGE TOKEN"]:::tok
+    LEA["job_lease<br/>LEASE TOKEN"]:::tok
+    W["worker<br/>liveness + capacity"]:::ctl
+  end
+
+  P -- "TX · enqueue" --> PAY
+  P -- " " --> RDY
+  C -- "UPSERT / heartbeat" --> W
+  W -. "SELECT live workers" .-> C
+  C -- "claim · range scan" --> RDY
+  RDY -. " " .-> LEA
+  C -- "TX · ack" --> LEA
+  LEA -. "expired → requeue / dead" .-> PAY
+</pre>
+        </div>
+      </div>
+
+      <div class="three-pillars">
+        <div class="pillar">
+          <span class="num">I · ORDER</span>
+          <h4>Ordering lives in the record-ID</h4>
+          <p><code>job_ready</code> IDs are <code>[queue, bucket, available_ns, job_key]</code>. "Give me ready jobs" is a <code>RecordIdScan</code> range read — never a secondary-index seek.</p>
+        </div>
+        <div class="pillar">
+          <span class="num">II · SHARDS</span>
+          <h4>Buckets shard work; HRW shards ownership</h4>
+          <p>Producers hash into buckets, ignorant of consumers. Every consumer reads the live <code>worker</code> set and computes HRW locally — no persisted partition lease, no coordinator.</p>
+        </div>
+        <div class="pillar">
+          <span class="num">III · LEASES</span>
+          <h4>TTL by ID — no timer service</h4>
+          <p><code>job_lease</code> IDs encode <code>lease_until_ns</code>. Recovery is itself a range scan up to <code>now_ns</code>. No per-row TTL, no scheduler.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ DATA FLOW ============ -->
+    <section class="panel" data-tab="dataflow">
+      <h2><span class="marker">§ 02 — Data flow</span>States &amp; transitions</h2>
+
+      <div class="frame">
+        <span class="label">FIG. 2 — Token state machine</span>
+        <div class="body mermaid-wrap">
+<pre class="mermaid">
+stateDiagram-v2
+  direction LR
+  [*] --> Ready : TX enqueue
+  Ready --> Leased : TX claim
+  Leased --> Done : TX ack
+  Leased --> Ready : TX recover · attempts &lt; max
+  Leased --> Dead : TX recover · attempts &gt;= max
+  Done --> [*]
+  Dead --> [*]
+</pre>
+        </div>
+      </div>
+
+      <p>
+        Four states, four transactions. <code>Ready</code> and <code>Leased</code> are
+        materialised as separate skinny tables — each transition is a delete-from-one,
+        insert-into-other. The terminal states (<code>Done</code>, <code>Dead</code>) live
+        only on the <code>job_payload</code> row.
+      </p>
+
+      <div class="frame">
+        <span class="label">FIG. 3 — What each transaction does</span>
+        <div class="body">
+          <div class="tx-grid">
+            <div class="tx">
+              <span class="tag">ENQUEUE</span>
+              <h5>producer · insert_jobs</h5>
+              <ol>
+                <li>INSERT job_payload<span class="muted">state = active</span></li>
+                <li>INSERT job_ready<span class="muted">id = [Q, B, 0, key]</span></li>
+              </ol>
+            </div>
+            <div class="tx">
+              <span class="tag">CLAIM</span>
+              <h5>fn::bench_receive_ready</h5>
+              <ol>
+                <li>DELETE (SELECT VALUE id FROM job_ready range) RETURN BEFORE<span class="muted">[Q, B, NONE, NONE] ..= [Q, B, MAX, ~~~~]</span></li>
+                <li>INSERT job_lease for each<span class="muted">id = [Q, B, lease_until_ns, key] · attempts+1</span></li>
+                <li>RETURN [{lease_token, sent_at_ns}]</li>
+              </ol>
+            </div>
+            <div class="tx">
+              <span class="tag">ACK</span>
+              <h5>fn::bench_ack</h5>
+              <ol>
+                <li>DELETE $lease_tokens RETURN BEFORE</li>
+                <li>UPDATE leases[].job<span class="muted">state = done · completed_at_ns</span></li>
+                <li>RETURN count</li>
+              </ol>
+            </div>
+            <div class="tx">
+              <span class="tag">RECOVER</span>
+              <h5>fn::bench_recover_buckets</h5>
+              <ol>
+                <li>FOR each owned bucket B</li>
+                <li>DELETE (SELECT VALUE id FROM job_lease range) RETURN BEFORE<span class="muted">[Q, B, NONE, NONE] ..= [Q, B, now_ns, ~~~~]</span></li>
+                <li>attempts &lt; max → INSERT job_ready</li>
+                <li>attempts ≥ max → UPDATE state = dead</li>
+              </ol>
+            </div>
+          </div>
+          <p class="cap" style="margin-top:18px">
+            A fourth function, <code>fn::bench_fail</code>, is defined for explicit nack
+            (delete lease → requeue or dead-letter), mirroring <code>RECOVER</code>'s
+            branching. The current benchmark loop never fails a job, so it's a defined
+            capability rather than a hot path.
+          </p>
+        </div>
+      </div>
+
+      <div class="frame">
+        <span class="label">FIG. 4 — End-to-end flow</span>
+        <div class="body mermaid-wrap">
+<pre class="mermaid">
+flowchart LR
+  classDef prod fill:#e8dec9,stroke:#1a1d24,stroke-width:2px;
+  classDef tx fill:#1a1d24,color:#f1eadb,stroke:#1a1d24;
+  classDef tbl fill:#2a4a73,color:#f1eadb,stroke:#1a3354;
+  classDef redbox fill:#b3322a,color:#f1eadb,stroke:#872019;
+  classDef terminal fill:#a67517,color:#f1eadb,stroke:#5b3d0e;
+
+  P[Producer]:::prod
+  TX1[["TX · enqueue"]]:::tx
+  PAY[(job_payload<br/>active)]:::tbl
+  RDY[(job_ready)]:::redbox
+
+  C[Consumer]:::prod
+  TX2[["TX · claim"]]:::tx
+  LEA[(job_lease)]:::redbox
+  TX3[["TX · ack"]]:::tx
+  DONE[(job_payload<br/>done)]:::terminal
+  TX4[["TX · recover"]]:::tx
+  DEAD[(job_payload<br/>dead)]:::terminal
+
+  P --> TX1 --> PAY
+  TX1 --> RDY
+  RDY -. "range scan" .-> TX2
+  C --> TX2
+  TX2 -- "delete · insert" --> LEA
+  LEA --> TX3
+  C --> TX3
+  TX3 --> DONE
+  LEA -. "expired" .-> TX4
+  TX4 -. "retry" .-> RDY
+  TX4 --> DEAD
+</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ EXECUTION ============ -->
+    <section class="panel" data-tab="execution">
+      <h2><span class="marker">§ 03 — Execution</span>Workers, modes, ownership</h2>
+
+      <div class="mode-strip">
+        <div class="mode">
+          <span class="tag">INSERT-ONLY</span>
+          <p>N producers, no consumers.</p>
+          <p class="why">→ pure enqueue cost</p>
+        </div>
+        <div class="mode">
+          <span class="tag">CONCURRENT</span>
+          <p>Producers + consumers in parallel.</p>
+          <p class="why">→ steady-state throughput &amp; e2e latency</p>
+        </div>
+        <div class="mode">
+          <span class="tag">DRAIN-ONLY</span>
+          <p>All inserts finish, then consumers drain.</p>
+          <p class="why">→ fixed work-down · sdbjq-comparable</p>
+        </div>
+      </div>
+
+      <div class="frame">
+        <span class="label">FIG. 5 — Bucket ownership via HRW (rendezvous hashing)</span>
+        <div class="body">
+          <p class="cap">
+            For every <code>(bucket, worker)</code> pair the score is
+            <code>xxh3(bucket_le_bytes ‖ worker_id)</code>. The worker with the highest score owns
+            that bucket. No coordinator, no leader election — every live worker independently agrees,
+            recomputing from the rows of <code>worker</code> whose <code>lease_until &gt; now</code>.
+          </p>
+          <table class="hrw">
+            <thead>
+              <tr><th>bucket</th><th>α score</th><th>β score</th><th>γ score</th><th class="owner">owner</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>0x00</td><td>9F23…</td><td class="win">F112…</td><td>4A88…</td><td class="o">β</td></tr>
+              <tr><td>0x01</td><td>3D44…</td><td>1A22…</td><td class="win">CC91…</td><td class="o">γ</td></tr>
+              <tr><td>0x02</td><td class="win">B707…</td><td>A011…</td><td>5C30…</td><td class="o">α</td></tr>
+              <tr><td>0x03</td><td>2B44…</td><td class="win">E091…</td><td>7D15…</td><td class="o">β</td></tr>
+              <tr><td>0x04</td><td>4C12…</td><td>3F89…</td><td class="win">D255…</td><td class="o">γ</td></tr>
+              <tr><td>0x05</td><td class="win">A6E2…</td><td>5044…</td><td>1B73…</td><td class="o">α</td></tr>
+            </tbody>
+          </table>
+          <p class="cap">
+            When a worker dies, its <code>worker.lease_until</code> falls into the past
+            and it drops out of the active set. Every survivor's next refresh recomputes
+            HRW against the smaller set and naturally inherits the orphaned buckets, then
+            calls <code>fn::bench_recover_buckets</code> to sweep their expired leases.
+          </p>
+        </div>
+      </div>
+
+      <div class="frame">
+        <span class="label">FIG. 6 — One consumer's run</span>
+        <div class="body mermaid-wrap">
+<pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant W as Worker (Tokio task)
+  participant SDB as SurrealDB
+
+  W->>SDB: UPSERT worker SET lease_until = now + lease, capacity
+  Note over W: barrier.wait() -- sync start
+  loop until consumed == tasks
+    alt buckets stale OR last_refresh >= heartbeat_interval
+      W->>SDB: SELECT worker_id FROM worker WHERE lease_until > now
+      Note over W: HRW: own bucket iff xxh3(b||self) > all others
+      W->>SDB: fn::bench_recover_buckets($queue, owned, now_ns, limit)
+    end
+    alt heartbeat due
+      W->>SDB: UPDATE worker SET lease_until = now + lease
+    end
+    Note over W: pick next ready bucket (round-robin with backoff)
+    W->>SDB: fn::bench_receive_ready($queue, bucket, limit, MAX_INT, lease_until_ns)
+    SDB-->>W: array of {lease_token, sent_at_ns}
+    alt empty
+      Note over W: empty_misses++, backoff 2^min(n,5) ms on that bucket
+    else jobs returned
+      opt --job-ms > 0
+        Note over W: sleep(job_ms) -- simulate work
+      end
+      W->>SDB: fn::bench_ack($lease_tokens, completed_at_ns)
+      SDB-->>W: count acked
+    end
+  end
+</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ ABSTRACTIONS ============ -->
+    <section class="panel" data-tab="abstractions">
+      <h2><span class="marker">§ 04 — Abstractions</span>The ID layout that makes it work</h2>
+      <p class="lede">
+        Every queue operation is a <code>RecordIdScan</code> range read or a delete-by-ID.
+        There is no secondary index. The structure of the record-IDs <em>is</em> the access plan.
+      </p>
+
+      <div class="frame">
+        <span class="label">FIG. 7 — Record-ID anatomy</span>
+        <div class="body">
+          <div class="id-diagram">
+            <div class="row">
+              <span class="name">job_payload</span>
+              <span class="colon">:</span>
+              <span class="seg key">job_key</span>
+            </div>
+            <div class="row">
+              <span class="name">job_ready</span>
+              <span class="colon">:</span>
+              <span class="seg">queue</span><span class="seg">bucket</span><span class="seg var">available_ns</span><span class="seg key">job_key</span>
+            </div>
+            <div class="row">
+              <span class="name">job_lease</span>
+              <span class="colon">:</span>
+              <span class="seg">queue</span><span class="seg">bucket</span><span class="seg var">lease_until_ns</span><span class="seg key">job_key</span>
+            </div>
+            <div class="row">
+              <span class="name">worker</span>
+              <span class="colon">:</span>
+              <span class="seg id">worker_id</span>
+            </div>
+          </div>
+          <div class="legend">
+            <span><i class="sw blue"></i>moving sort key — places the row in time</span>
+            <span><i class="sw amber"></i>stable identity of the underlying job</span>
+            <span><i class="sw red"></i>worker UUID (single-segment ID)</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="abst-grid">
+        <div class="abst">
+          <span class="num">I · RANGE TOKENS</span>
+          <h4>IDs encode the sort order</h4>
+          <p>"Next ready job" = <code>SELECT FROM job_ready:[Q,B,NONE,NONE]..=[Q,B,now,~~~] LIMIT N</code>. Primary-key scan. Cheapest read the engine has.</p>
+        </div>
+        <div class="abst">
+          <span class="num">II · VIRTUAL BUCKETS</span>
+          <h4>Sharding lives only in the ID</h4>
+          <p>No physical partitions. <code>bucket = xxh3(job_key) % B</code>. Default 1024; keep <code>buckets ≫ consumers</code>.</p>
+        </div>
+        <div class="abst">
+          <span class="num">III · HRW OWNERSHIP</span>
+          <h4>Client-side, no coordinator</h4>
+          <p>Every worker reads the live <code>worker</code> rows and independently picks the same winner per bucket. The only persisted lease is the worker row itself.</p>
+        </div>
+        <div class="abst">
+          <span class="num">IV · TTL BY ID</span>
+          <h4>Lease tokens carry their deadline</h4>
+          <p><code>lease_until_ns</code> sits inside the ID. Recovery is a range scan up to <code>now_ns</code>. No per-row TTL, no scheduler.</p>
+        </div>
+        <div class="abst">
+          <span class="num">V · ATOMIC TRANSITIONS</span>
+          <h4>Stored functions in transactions</h4>
+          <p>Each state change is one round-trip. Multi-row mutations commit together or roll back together.</p>
+        </div>
+        <div class="abst">
+          <span class="num">VI · OBSERVABILITY</span>
+          <h4>Atomics + sample buffers per op</h4>
+          <p>Six op-kinds (producer, select, ack, register, heartbeat, refresh). p50/p95/p99 + captured <code>EXPLAIN ANALYZE</code>.</p>
+        </div>
+      </div>
+
+      <div class="frame dark">
+        <span class="label">fn::bench_receive_ready — the range-scan claim</span>
+        <pre><span class="kw">DEFINE FUNCTION OVERWRITE</span> <span class="fn">fn::bench_receive_ready</span>(
+    $queue: <span class="kw">string</span>, $bucket: <span class="kw">int</span>, $limit: <span class="kw">int</span>,
+    $available_until_ns: <span class="kw">int</span>, $lease_until_ns: <span class="kw">int</span>
+) -> <span class="kw">array</span>&lt;<span class="kw">object</span>&gt; {
+    <span class="com">// Atomic claim — one statement: DELETE wraps a bounded RecordIdScan.</span>
+    <span class="com">// Range tokens are deleted and the prior rows are returned for lease minting.</span>
+    <span class="kw">LET</span> $ready = <span class="kw">DELETE</span> (
+        <span class="kw">SELECT VALUE</span> id
+        <span class="kw">FROM</span> job_ready:[$queue, $bucket, <span class="kw">NONE</span>, <span class="kw">NONE</span>]
+              ..=[$queue, $bucket, $available_until_ns, <span class="str">"~~~~"</span>]
+        <span class="kw">LIMIT</span> $limit
+    ) <span class="kw">RETURN BEFORE</span>;
+    <span class="kw">IF</span> $ready.len() = <span class="num">0</span> { <span class="kw">RETURN</span> []; };
+
+    <span class="com">// Mint skinny lease tokens. The ID encodes the deadline, so recovery is</span>
+    <span class="com">// itself a range scan — no per-row TTL, no timer service.</span>
+    <span class="kw">INSERT INTO</span> job_lease $ready.map(|$row| {
+        id: <span class="fn">type::record</span>(<span class="str">"job_lease"</span>, [$queue, $bucket, $lease_until_ns, $row.job_key]),
+        queue: $queue, bucket: $bucket, lease_until_ns: $lease_until_ns,
+        job: $row.job, job_key: $row.job_key,
+        attempts: $row.attempts + <span class="num">1</span>, max_attempts: $row.max_attempts,
+        sent_at_ns: $row.sent_at_ns
+    }) <span class="kw">RETURN NONE</span>;
+
+    <span class="kw">RETURN</span> $ready.map(|$row| {
+        lease_token: <span class="fn">type::record</span>(<span class="str">"job_lease"</span>,
+            [$queue, $bucket, $lease_until_ns, $row.job_key]),
+        sent_at_ns: $row.sent_at_ns
+    });
+};</pre>
+      </div>
+    </section>
+
+    <!-- ============ MODULES ============ -->
+    <section class="panel" data-tab="modules">
+      <h2><span class="marker">§ 05 — Modules</span>What lives where</h2>
+      <p class="lede">
+        Two source files, two concerns: the benchmark itself, and the report it leaves behind.
+        Everything else — SurrealQL schema, stored functions, JSON shape — is embedded as
+        string constants inside <code>main.rs</code>.
+      </p>
+
+      <div class="grid-2">
+        <div class="card">
+          <span class="tag">CORE · 1,961 LOC</span>
+          <h4>src/main.rs</h4>
+          <p>
+            Single-binary entry point. Parses CLI args with <code>clap</code>, connects to
+            SurrealDB over WebSocket, defines the schema + stored functions on each run,
+            and drives the producer/consumer Tokio tasks. Emits a structured
+            <code>JsonReport</code> (or <code>MatrixReport</code> in matrix mode).
+          </p>
+          <ul>
+            <li><code>Args</code> + <code>BenchMode</code> — CLI surface, matrix knobs</li>
+            <li><code>setup_schema</code> — inline SurrealQL: tables + 4 stored fns</li>
+            <li><code>run_concurrent_benchmark</code> / <code>run_insert_only</code> / <code>run_fixed_workdown</code></li>
+            <li><code>run_producer</code> + <code>insert_jobs</code> — batched <code>BEGIN/COMMIT</code> enqueue</li>
+            <li><code>run_consumer</code> — per-bucket round-robin claim loop with empty-bucket backoff</li>
+            <li><code>partition_lease_targets</code> — client-side HRW from live workers</li>
+            <li><code>refresh_buckets</code> / <code>recover_expired_leases</code> — sweep stale leases</li>
+            <li><code>capture_explain</code> — <code>EXPLAIN ANALYZE</code> for receive + recover ranges</li>
+            <li><code>BenchCounters</code> — atomic op tallies + sample buffers for percentiles</li>
+          </ul>
+          <div class="files">src/main.rs · 1 module · tokio main</div>
+        </div>
+
+        <div class="card">
+          <span class="tag">REPORT · 3,260 LOC</span>
+          <h4>src/html_report.rs</h4>
+          <p>
+            Self-contained HTML report generator. Given a <code>JsonReport</code> or
+            <code>MatrixReport</code>, produces a single static <code>.html</code> file
+            with embedded charts (throughput, phase windows, latency CDFs, op
+            percentiles, sparklines, query plans). No JS frameworks, no external CSS —
+            everything inlined so the artifact is portable.
+          </p>
+          <ul>
+            <li><code>write_html_report</code> — entry point invoked from <code>main</code></li>
+            <li><code>html_output_path</code> — infers <code>.html</code> path from <code>--output</code> / <code>--export</code></li>
+            <li>Inline SVG charts, config tables, counters, and <code>EXPLAIN</code> dumps</li>
+            <li>Matrix mode: aggregate dashboard across every cell</li>
+          </ul>
+          <div class="files">src/html_report.rs · skipped when --no-html</div>
+        </div>
+      </div>
+
+      <h3>Cargo dependencies</h3>
+      <table class="spec">
+        <thead>
+          <tr><th>crate</th><th>version</th><th>used for</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="k">surrealdb</td><td>3.0.5</td><td>WebSocket client, <code>Surreal&lt;Client&gt;</code>, query/bind</td></tr>
+          <tr><td class="k">surrealdb-types</td><td>3.0.5</td><td><code>RecordId</code>, <code>Array</code>, <code>Value</code>, <code>SurrealValue</code> derive</td></tr>
+          <tr><td class="k">tokio</td><td>1.52</td><td>rt-multi-thread, <code>Barrier</code> for synced start, <code>sleep</code></td></tr>
+          <tr><td class="k">clap</td><td>4.6</td><td>CLI args, <code>derive</code> feature, value aliases for sdbjq parity</td></tr>
+          <tr><td class="k">futures</td><td>0.3</td><td><code>try_join_all</code> for producer/consumer fan-in</td></tr>
+          <tr><td class="k">serde / serde_json</td><td>1.0</td><td>report serialization, payload object</td></tr>
+          <tr><td class="k">xxhash-rust</td><td>0.8</td><td><code>xxh3_64</code> — bucket hash + HRW score</td></tr>
+          <tr><td class="k">uuid</td><td>1.23</td><td>v4 worker IDs</td></tr>
+          <tr><td class="k">anyhow</td><td>1.0</td><td>error context plumbing</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Schema surface (defined inline in <code>setup_schema</code>)</h3>
+      <table class="spec">
+        <thead>
+          <tr><th>table</th><th>kind</th><th>key fields</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="k">worker</td><td>SCHEMAFULL</td><td>worker_id · queue · lease_until · capacity · load</td></tr>
+          <tr><td class="k">job_payload</td><td>SCHEMAFULL</td><td>queue · job_key · bucket · state ∈ {active,done,dead} · sent_at_ns · completed_at_ns · dead_at_ns · payload</td></tr>
+          <tr><td class="k">job_ready</td><td>SCHEMAFULL</td><td>queue · bucket · available_ns · job · job_key · attempts · max_attempts · sent_at_ns</td></tr>
+          <tr><td class="k">job_lease</td><td>SCHEMAFULL</td><td>queue · bucket · lease_until_ns · job · job_key · attempts · max_attempts · sent_at_ns</td></tr>
+        </tbody>
+      </table>
+      <table class="spec">
+        <thead>
+          <tr><th>stored fn</th><th>args</th><th>returns</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="k">fn::bench_receive_ready</td><td>$queue, $bucket, $limit, $available_until_ns, $lease_until_ns</td><td>array&lt;{lease_token, sent_at_ns}&gt;</td></tr>
+          <tr><td class="k">fn::bench_recover_buckets</td><td>$queue, $buckets[], $now_ns, $limit</td><td>NONE</td></tr>
+          <tr><td class="k">fn::bench_ack</td><td>$lease_tokens[], $completed_at_ns</td><td>int (count)</td></tr>
+          <tr><td class="k">fn::bench_fail</td><td>$lease_tokens[], $now_ns</td><td>NONE · defined but not called by the bench</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+  </main>
+
+  <footer class="sig">
+    <span>SURREAL // QUEUE // BENCH · ARCH DOC · REV 2026.05.13</span>
+    <span>RecordIdScan or it didn't happen</span>
+  </footer>
+</div>
+
+<div class="zoom-modal" id="zoomModal" role="dialog" aria-modal="true" aria-label="Diagram zoom">
+  <div class="titlebar">
+    <span class="left" id="zoomLabel">FIG.</span>
+    <div class="controls">
+      <button data-act="zoomout" aria-label="Zoom out">−</button>
+      <button data-act="reset">FIT</button>
+      <button data-act="zoomin" aria-label="Zoom in">+</button>
+      <button data-act="close" class="close">✕&nbsp;CLOSE</button>
+    </div>
+  </div>
+  <div class="stage" id="zoomStage">
+    <div class="canvas" id="zoomCanvas"></div>
+    <div class="hint">DRAG to pan · SCROLL to zoom · ESC to close</div>
+    <div class="readout" id="zoomReadout">100%</div>
+  </div>
+</div>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'base',
+    themeVariables: {
+      background: '#f1eadb',
+      primaryColor: '#e8dec9',
+      primaryTextColor: '#1a1d24',
+      primaryBorderColor: '#1a1d24',
+      lineColor: '#3b3f49',
+      secondaryColor: '#b3322a',
+      tertiaryColor: '#2a4a73',
+      fontFamily: 'JetBrains Mono, monospace',
+      fontSize: '14px',
+      noteBkgColor: '#e8dec9',
+      noteTextColor: '#1a1d24',
+      noteBorderColor: '#1a1d24',
+      actorBkg: '#e8dec9',
+      actorBorder: '#1a1d24',
+      actorTextColor: '#1a1d24',
+      signalColor: '#1a1d24',
+      signalTextColor: '#1a1d24',
+      labelBoxBkgColor: '#b3322a',
+      labelBoxBorderColor: '#872019',
+      labelTextColor: '#f1eadb',
+      activationBkgColor: '#a67517',
+      activationBorderColor: '#5b3d0e',
+      sequenceNumberColor: '#f1eadb',
+    },
+    flowchart: { curve: 'basis', padding: 18, useMaxWidth: true },
+    sequence: { actorMargin: 60, messageFontFamily: 'JetBrains Mono, monospace', noteFontFamily: 'JetBrains Mono, monospace', useMaxWidth: true },
+    stateDiagram: { useMaxWidth: true },
+  });
+
+  // ---------- mermaid rendering + SVG normalization ----------
+
+  function normalizeSvg(svg) {
+    if (!svg) return;
+    // Preserve a viewBox so the SVG scales cleanly when we drop width/height.
+    if (!svg.getAttribute('viewBox')) {
+      const w = parseFloat(svg.getAttribute('width')) || svg.getBoundingClientRect().width || 800;
+      const h = parseFloat(svg.getAttribute('height')) || svg.getBoundingClientRect().height || 400;
+      svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
+    }
+    // Mermaid's viewBox is sized to node boxes — edge labels often overflow.
+    // Recompute against the real rendered bbox plus a small pad.
+    try {
+      const bb = svg.getBBox();
+      if (bb && bb.width > 0 && bb.height > 0) {
+        const pad = 12;
+        svg.setAttribute('viewBox', `${bb.x - pad} ${bb.y - pad} ${bb.width + pad * 2} ${bb.height + pad * 2}`);
+      }
+    } catch (_) { /* getBBox can fail on hidden trees; viewBox already set above */ }
+    svg.removeAttribute('width');
+    svg.removeAttribute('height');
+    svg.style.width = '100%';
+    svg.style.maxWidth = '100%';
+    svg.style.height = 'auto';
+    svg.style.display = 'block';
+    svg.style.overflow = 'visible';
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+  }
+
+  function attachZoomAffordance(frame, svg) {
+    if (!frame || frame.querySelector('.expand-btn')) return;
+    const btn = document.createElement('button');
+    btn.className = 'expand-btn';
+    btn.type = 'button';
+    btn.innerHTML = '&#x2922;&nbsp;ZOOM';
+    const labelText = (frame.querySelector('.label')?.textContent || 'FIGURE').trim();
+    btn.addEventListener('click', () => openZoom(svg, labelText));
+    frame.appendChild(btn);
+    svg.addEventListener('click', () => openZoom(svg, labelText));
+  }
+
+  async function renderPanel(name) {
+    const panel = document.querySelector(`.panel[data-tab="${name}"]`);
+    if (!panel) return;
+    const nodes = Array.from(panel.querySelectorAll('.mermaid:not([data-rendered])'));
+    if (!nodes.length) return;
+    nodes.forEach(n => n.setAttribute('data-rendered', 'true'));
+    try {
+      await mermaid.run({ nodes });
+      nodes.forEach(node => {
+        const svg = node.querySelector('svg');
+        normalizeSvg(svg);
+        if (svg) attachZoomAffordance(node.closest('.frame'), svg);
+      });
+    } catch (err) {
+      console.error('mermaid render error', err);
+      nodes.forEach(n => n.removeAttribute('data-rendered'));
+    }
+  }
+
+  // ---------- tabs ----------
+
+  function switchTab(name) {
+    document.querySelectorAll('.panel').forEach(p => p.classList.toggle('active', p.dataset.tab === name));
+    document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+    renderPanel(name);
+    if (history.replaceState) history.replaceState(null, '', '#' + name);
+  }
+
+  document.getElementById('tabnav').addEventListener('click', e => {
+    const btn = e.target.closest('.tab');
+    if (!btn) return;
+    switchTab(btn.dataset.tab);
+  });
+
+  // ---------- zoom modal ----------
+
+  const modal   = document.getElementById('zoomModal');
+  const stage   = document.getElementById('zoomStage');
+  const canvas  = document.getElementById('zoomCanvas');
+  const readout = document.getElementById('zoomReadout');
+  const labelEl = document.getElementById('zoomLabel');
+
+  const zoom = { scale: 1, tx: 0, ty: 0, dragging: false, lx: 0, ly: 0, natW: 0, natH: 0 };
+
+  function applyZoom() {
+    canvas.style.transform = `translate(${zoom.tx}px, ${zoom.ty}px) scale(${zoom.scale})`;
+    readout.textContent = Math.round(zoom.scale * 100) + '%';
+  }
+
+  function fitZoom() {
+    const svg = canvas.querySelector('svg');
+    if (!svg) return;
+    const rect = stage.getBoundingClientRect();
+    const pad  = 40;
+    const sx = (rect.width  - pad * 2) / zoom.natW;
+    const sy = (rect.height - pad * 2) / zoom.natH;
+    zoom.scale = Math.min(sx, sy, 4);
+    zoom.tx = (rect.width  - zoom.natW * zoom.scale) / 2;
+    zoom.ty = (rect.height - zoom.natH * zoom.scale) / 2;
+    applyZoom();
+  }
+
+  function openZoom(srcSvg, label) {
+    canvas.innerHTML = '';
+    const clone = srcSvg.cloneNode(true);
+    clone.removeAttribute('style');
+    clone.style.display = 'block';
+    // Resolve natural size from viewBox so the cloned SVG renders at full fidelity.
+    let w = 800, h = 400;
+    if (clone.viewBox && clone.viewBox.baseVal && clone.viewBox.baseVal.width > 0) {
+      w = clone.viewBox.baseVal.width;
+      h = clone.viewBox.baseVal.height;
+    }
+    clone.setAttribute('width',  w);
+    clone.setAttribute('height', h);
+    zoom.natW = w;
+    zoom.natH = h;
+    canvas.appendChild(clone);
+    labelEl.textContent = label;
+    modal.classList.add('open');
+    requestAnimationFrame(fitZoom);
+  }
+
+  function closeZoom() { modal.classList.remove('open'); }
+
+  function stepZoom(factor) {
+    const rect = stage.getBoundingClientRect();
+    const cx = rect.width / 2, cy = rect.height / 2;
+    const next = Math.max(0.1, Math.min(12, zoom.scale * factor));
+    zoom.tx = cx - (cx - zoom.tx) * (next / zoom.scale);
+    zoom.ty = cy - (cy - zoom.ty) * (next / zoom.scale);
+    zoom.scale = next;
+    applyZoom();
+  }
+
+  stage.addEventListener('wheel', (e) => {
+    if (!modal.classList.contains('open')) return;
+    e.preventDefault();
+    const rect = stage.getBoundingClientRect();
+    const cx = e.clientX - rect.left;
+    const cy = e.clientY - rect.top;
+    const next = Math.max(0.1, Math.min(12, zoom.scale * Math.exp(-e.deltaY * 0.0015)));
+    zoom.tx = cx - (cx - zoom.tx) * (next / zoom.scale);
+    zoom.ty = cy - (cy - zoom.ty) * (next / zoom.scale);
+    zoom.scale = next;
+    applyZoom();
+  }, { passive: false });
+
+  stage.addEventListener('mousedown', (e) => {
+    zoom.dragging = true; zoom.lx = e.clientX; zoom.ly = e.clientY;
+    stage.classList.add('dragging'); e.preventDefault();
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!zoom.dragging) return;
+    zoom.tx += e.clientX - zoom.lx;
+    zoom.ty += e.clientY - zoom.ly;
+    zoom.lx = e.clientX; zoom.ly = e.clientY;
+    applyZoom();
+  });
+  window.addEventListener('mouseup', () => { zoom.dragging = false; stage.classList.remove('dragging'); });
+
+  // touch
+  let lastTouchDist = 0, lastTouchMid = null;
+  stage.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 1) {
+      zoom.dragging = true; zoom.lx = e.touches[0].clientX; zoom.ly = e.touches[0].clientY;
+    } else if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      lastTouchDist = Math.hypot(dx, dy);
+      lastTouchMid = { x: (e.touches[0].clientX + e.touches[1].clientX) / 2, y: (e.touches[0].clientY + e.touches[1].clientY) / 2 };
+    }
+  }, { passive: true });
+  stage.addEventListener('touchmove', (e) => {
+    if (e.touches.length === 1 && zoom.dragging) {
+      zoom.tx += e.touches[0].clientX - zoom.lx;
+      zoom.ty += e.touches[0].clientY - zoom.ly;
+      zoom.lx = e.touches[0].clientX; zoom.ly = e.touches[0].clientY;
+      applyZoom();
+      e.preventDefault();
+    } else if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.hypot(dx, dy);
+      if (lastTouchDist > 0 && lastTouchMid) {
+        const rect = stage.getBoundingClientRect();
+        const cx = lastTouchMid.x - rect.left;
+        const cy = lastTouchMid.y - rect.top;
+        const factor = dist / lastTouchDist;
+        const next = Math.max(0.1, Math.min(12, zoom.scale * factor));
+        zoom.tx = cx - (cx - zoom.tx) * (next / zoom.scale);
+        zoom.ty = cy - (cy - zoom.ty) * (next / zoom.scale);
+        zoom.scale = next;
+        applyZoom();
+      }
+      lastTouchDist = dist;
+      e.preventDefault();
+    }
+  }, { passive: false });
+  stage.addEventListener('touchend', () => { zoom.dragging = false; lastTouchDist = 0; lastTouchMid = null; });
+
+  document.querySelectorAll('.zoom-modal .controls button').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const act = btn.dataset.act;
+      if (act === 'close') closeZoom();
+      else if (act === 'reset') fitZoom();
+      else if (act === 'zoomin') stepZoom(1.4);
+      else if (act === 'zoomout') stepZoom(1 / 1.4);
+    });
+  });
+
+  document.addEventListener('keydown', (e) => {
+    if (!modal.classList.contains('open')) return;
+    if (e.key === 'Escape') closeZoom();
+    else if (e.key === '+' || e.key === '=') stepZoom(1.4);
+    else if (e.key === '-' || e.key === '_') stepZoom(1 / 1.4);
+    else if (e.key === '0') fitZoom();
+  });
+
+  // refit when the window resizes while the modal is open
+  window.addEventListener('resize', () => {
+    if (modal.classList.contains('open')) fitZoom();
+  });
+
+  // ---------- boot ----------
+
+  const initial = (location.hash || '').replace('#', '') || 'overview';
+  const validTabs = new Set(Array.from(document.querySelectorAll('.tab')).map(t => t.dataset.tab));
+  switchTab(validTabs.has(initial) ? initial : 'overview');
+</script>
+</body>
+</html>

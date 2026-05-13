@@ -1,0 +1,35 @@
+# Rust
+/target
+**/*.rs.bk
+*.pdb
+
+# Benchmark outputs
+/reports/
+*.bench.json
+*.bench.html
+
+# SurrealDB CLI artifacts
+history.txt
+*.db
+
+# Logs and temp files
+*.log
+*.tmp
+*.bak
+*.orig
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
