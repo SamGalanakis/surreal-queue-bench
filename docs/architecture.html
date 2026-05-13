@@ -859,7 +859,7 @@
       <span class="rhs">
         <span>SURREALDB v3.0.5</span>
         <span>RUST 2024</span>
-        <span>5,221 LOC</span>
+        <span>5,341 LOC</span>
       </span>
     </div>
     <h1 class="title">surreal<em>·</em>queue<em>·</em>bench</h1>
@@ -870,7 +870,7 @@
     </p>
     <div class="kpis">
       <div class="kpi"><span class="label">Language</span><span class="value">Rust</span><span class="unit">2024</span></div>
-      <div class="kpi"><span class="label">Source</span><span class="value">5,221</span><span class="unit">LOC · 2 files</span></div>
+      <div class="kpi"><span class="label">Source</span><span class="value">5,341</span><span class="unit">LOC · 2 files</span></div>
       <div class="kpi"><span class="label">Crates</span><span class="value">10</span><span class="unit">deps</span></div>
       <div class="kpi"><span class="label">Tables</span><span class="value">4</span><span class="unit">SDB</span></div>
       <div class="kpi"><span class="label">Stored Fns</span><span class="value">4</span><span class="unit">SurrealQL</span></div>
@@ -986,8 +986,10 @@ stateDiagram-v2
               <span class="tag">ENQUEUE</span>
               <h5>producer · insert_jobs</h5>
               <ol>
+                <li>BEGIN TRANSACTION<span class="muted">one TX per batch</span></li>
                 <li>INSERT job_payload<span class="muted">state = active</span></li>
                 <li>INSERT job_ready<span class="muted">id = [Q, B, 0, key]</span></li>
+                <li>COMMIT TRANSACTION<span class="muted">payload + token together</span></li>
               </ol>
             </div>
             <div class="tx">
@@ -1065,6 +1067,11 @@ flowchart LR
   TX4 --> DEAD
 </pre>
         </div>
+        <p class="cap" style="margin-top:18px">
+          Concurrent mode runs the producer and consumer paths in parallel against the
+          same SurrealDB; drain-only completes every enqueue first and only then starts
+          the consumer side; insert-only stops after the enqueue half.
+        </p>
       </div>
     </section>
 
@@ -1089,6 +1096,12 @@ flowchart LR
           <p class="why">→ fixed work-down · sdbjq-comparable</p>
         </div>
       </div>
+      <p class="cap" style="margin-top:-6px;margin-bottom:18px">
+        Passing <code>--num-total-jobs N</code> implies drain-only: the run inserts
+        exactly N jobs before consumers start, so the drain rate is comparable across
+        cells. <code>--num-total-jobs</code> with <code>--mode insert-only</code> is
+        rejected; it would be the same as a plain insert-only run.
+      </p>
 
       <div class="frame">
         <span class="label">FIG. 5 — Bucket ownership via HRW (rendezvous hashing)</span>
@@ -1193,10 +1206,19 @@ sequenceDiagram
             </div>
           </div>
           <div class="legend">
-            <span><i class="sw blue"></i>moving sort key — places the row in time</span>
+            <span><i class="sw blue"></i>time slot in the ID</span>
             <span><i class="sw amber"></i>stable identity of the underlying job</span>
             <span><i class="sw red"></i>worker UUID (single-segment ID)</span>
           </div>
+          <p class="cap" style="margin-top:14px">
+            <code>available_ns</code> reserves a structural slot for scheduled delivery —
+            the receive call passes an upper bound, so a future delivery time would
+            simply not match the range. The benchmark always writes
+            <code>available_ns = 0</code> and queries with <code>MAX_INT</code>; the
+            field exists so the same access pattern extends to delayed jobs without a
+            schema change. <code>lease_until_ns</code>, in contrast, is updated on every
+            claim and is genuinely the moving sort key.
+          </p>
         </div>
       </div>
 
@@ -1279,7 +1301,7 @@ sequenceDiagram
 
       <div class="grid-2">
         <div class="card">
-          <span class="tag">CORE · 1,961 LOC</span>
+          <span class="tag">CORE · 1,984 LOC</span>
           <h4>src/main.rs</h4>
           <p>
             Single-binary entry point. Parses CLI args with <code>clap</code>, connects to
@@ -1302,7 +1324,7 @@ sequenceDiagram
         </div>
 
         <div class="card">
-          <span class="tag">REPORT · 3,260 LOC</span>
+          <span class="tag">REPORT · 3,357 LOC</span>
           <h4>src/html_report.rs</h4>
           <p>
             Self-contained HTML report generator. Given a <code>JsonReport</code> or
@@ -1313,7 +1335,7 @@ sequenceDiagram
           </p>
           <ul>
             <li><code>write_html_report</code> — entry point invoked from <code>main</code></li>
-            <li><code>html_output_path</code> — infers <code>.html</code> path from <code>--output</code> / <code>--export</code></li>
+            <li><code>html_output_path</code> — infers <code>.html</code> path from <code>--run</code>, <code>--output</code>, or <code>--export</code></li>
             <li>Inline SVG charts, config tables, counters, and <code>EXPLAIN</code> dumps</li>
             <li>Matrix mode: aggregate dashboard across every cell</li>
           </ul>
@@ -1339,13 +1361,72 @@ sequenceDiagram
         </tbody>
       </table>
 
+      <h3>CLI surface (every knob that changes behaviour)</h3>
+      <table class="spec">
+        <thead>
+          <tr><th>flag</th><th>default</th><th>what it does</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="k">--run NAME</td><td><span class="muted">unset</span></td><td>Writes <code>runs/NAME/report.{json,html}</code>. Auto-creates the directory. Overridden by explicit <code>--output</code> / <code>--export</code>.</td></tr>
+          <tr><td class="k">--output PATH</td><td><span class="muted">unset</span></td><td>Explicit JSON path. Bypasses the <code>runs/</code> layout.</td></tr>
+          <tr><td class="k">--export PATH</td><td><span class="muted">unset</span></td><td>Explicit HTML path. Without it, HTML is auto-written next to the JSON.</td></tr>
+          <tr><td class="k">--no-html</td><td><code>false</code></td><td>Skip the HTML report entirely.</td></tr>
+          <tr><td class="k">--reset</td><td><code>true</code></td><td>Drops and redefines the schema + stored fns before every run. Pass <code>--reset=false</code> to reuse the live schema.</td></tr>
+          <tr><td class="k">--mode</td><td><code>concurrent</code></td><td><code>insert-only</code> · <code>drain-only</code> · <code>concurrent</code>. See § 03 for the auto-coercion rule.</td></tr>
+          <tr><td class="k">--num-total-jobs N</td><td><span class="muted">unset</span></td><td>Fixed work-down: insert N jobs, then drain. Forces drain-only.</td></tr>
+          <tr><td class="k">--tasks N</td><td><code>10_000</code></td><td>Total jobs to enqueue in concurrent / insert-only mode.</td></tr>
+          <tr><td class="k">--producers</td><td><code>1</code></td><td>Concurrent producer tasks.</td></tr>
+          <tr><td class="k">--consumers</td><td><code>1</code></td><td>Concurrent consumer tasks (alias <code>--workers</code>).</td></tr>
+          <tr><td class="k">--buckets B</td><td><code>1024</code></td><td>Bucket count (alias <code>--shards</code>). Keep <code>B ≫ consumers</code>.</td></tr>
+          <tr><td class="k">--producer-batch</td><td><code>500</code></td><td>Jobs per <code>BEGIN/COMMIT</code> producer transaction (alias <code>--producer-batch-size</code>).</td></tr>
+          <tr><td class="k">--consumer-batch</td><td><code>10</code></td><td>Jobs claimed per <code>fn::bench_receive_ready</code> call (alias <code>--receive-batch-size</code>).</td></tr>
+          <tr><td class="k">--payload-bytes</td><td><code>0</code></td><td>Bytes of string padding stuffed into each job payload.</td></tr>
+          <tr><td class="k">--job-ms</td><td><code>0</code></td><td>Simulated work between claim and ack (<code>sleep(job_ms)</code>).</td></tr>
+          <tr><td class="k">--lease-secs</td><td><code>30</code></td><td>Lease TTL written into <code>lease_until_ns</code>.</td></tr>
+          <tr><td class="k">--separate-clients</td><td><code>false</code></td><td>One <code>Surreal&lt;Client&gt;</code> per task instead of a shared connection. Used for sdbjq parity comparisons.</td></tr>
+        </tbody>
+      </table>
+
+      <h3>Matrix sweep flags</h3>
+      <p class="lede" style="margin-top:6px">
+        Pass any <code>--matrix-*</code> as a comma-separated list to expand that
+        dimension; the runner crosses every combination. The Cartesian product is
+        executed in a deterministic outer order: <em>repeat → tasks → mode → producers
+        → consumers → buckets → producer batch → receive batch → job_ms</em>.
+      </p>
+      <table class="spec">
+        <thead>
+          <tr><th>flag</th><th>what it sweeps</th></tr>
+        </thead>
+        <tbody>
+          <tr><td class="k">--matrix</td><td>Explicit opt-in. Any <code>--matrix-*</code> list also activates matrix mode.</td></tr>
+          <tr><td class="k">--matrix-modes</td><td>e.g. <code>insert-only,drain-only,concurrent</code>.</td></tr>
+          <tr><td class="k">--matrix-tasks</td><td>Total-jobs sweep.</td></tr>
+          <tr><td class="k">--matrix-producers</td><td>Producer-count sweep.</td></tr>
+          <tr><td class="k">--matrix-workers</td><td>Consumer-count sweep (alias <code>--matrix-consumers</code>).</td></tr>
+          <tr><td class="k">--matrix-shards</td><td>Bucket-count sweep (alias <code>--matrix-buckets</code>).</td></tr>
+          <tr><td class="k">--matrix-producer-batch-size</td><td>Producer-batch sweep.</td></tr>
+          <tr><td class="k">--matrix-receive-batch-size</td><td>Consumer-batch sweep.</td></tr>
+          <tr><td class="k">--matrix-job-ms</td><td>Simulated-work sweep.</td></tr>
+          <tr><td class="k">--matrix-repeats</td><td>Repeat every cell N times.</td></tr>
+          <tr><td class="k">--matrix-explain</td><td>Capture an <code>EXPLAIN ANALYZE</code> block per cell (slower; off by default).</td></tr>
+        </tbody>
+      </table>
+      <p class="cap" style="margin-top:8px">
+        Each cell resets the schema, runs a single benchmark with its own
+        <code>JsonReport</code>, and is then appended to a top-level
+        <code>MatrixReport</code>. The HTML exporter switches into pivot mode when
+        it sees the <code>runs[]</code> array — scatter with axis pickers, a sortable
+        run table, multi-select overlay, and a regime switcher.
+      </p>
+
       <h3>Schema surface (defined inline in <code>setup_schema</code>)</h3>
       <table class="spec">
         <thead>
           <tr><th>table</th><th>kind</th><th>key fields</th></tr>
         </thead>
         <tbody>
-          <tr><td class="k">worker</td><td>SCHEMAFULL</td><td>worker_id · queue · lease_until · capacity · load</td></tr>
+          <tr><td class="k">worker</td><td>SCHEMAFULL</td><td>worker_id · queue · lease_until · capacity <span class="muted">(load field defined for future load-balancing — never written)</span></td></tr>
           <tr><td class="k">job_payload</td><td>SCHEMAFULL</td><td>queue · job_key · bucket · state ∈ {active,done,dead} · sent_at_ns · completed_at_ns · dead_at_ns · payload</td></tr>
           <tr><td class="k">job_ready</td><td>SCHEMAFULL</td><td>queue · bucket · available_ns · job · job_key · attempts · max_attempts · sent_at_ns</td></tr>
           <tr><td class="k">job_lease</td><td>SCHEMAFULL</td><td>queue · bucket · lease_until_ns · job · job_key · attempts · max_attempts · sent_at_ns</td></tr>
